@@ -19,19 +19,18 @@ def run_dify(receipt_text):
         "Content-Type": "application/json"
     }
 
-  payload = {
-    "inputs": {
-        "receipt_text": receipt_text
-    },
-    "query": "レシート内容を解析してください。",
-    "response_mode": "blocking",
-    "user": "demo-user"
-}
+    payload = {
+        "inputs": {},
+        "query": receipt_text,
+        "response_mode": "blocking",
+        "user": "demo-user"
+    }
+
     response = requests.post(
         url,
         headers=headers,
         json=payload,
-        timeout=30
+        timeout=60
     )
 
     return response
@@ -46,6 +45,7 @@ if st.button("レシートを解析する"):
 
             if response.status_code == 200:
                 result = response.json()
+
                 st.subheader("解析結果")
 
                 if "answer" in result:
@@ -57,7 +57,7 @@ if st.button("レシートを解析する"):
                 st.write(response.text)
 
         except requests.exceptions.Timeout:
-            st.error("Difyの応答が30秒以内に返ってきませんでした。Dify側の処理が重い可能性があります。")
+            st.error("Difyの応答が60秒以内に返ってきませんでした。")
 
         except Exception as e:
             st.error("エラーが発生しました。")
