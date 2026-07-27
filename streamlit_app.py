@@ -30,22 +30,34 @@ def run_dify(receipt_text):
         url,
         headers=headers,
         json=payload,
-        timeout=120
+        timeout=30
     )
 
-    response.raise_for_status()
-    return response.json()
+    return response
 
 if st.button("レシートを解析する"):
     if receipt_text.strip() == "":
         st.warning("レシート内容を入力してください。")
     else:
-        with st.spinner("Difyでレシートを解析しています..."):
-            result = run_dify(receipt_text)
+        try:
+            with st.spinner("Difyでレシートを解析しています..."):
+                response = run_dify(receipt_text)
 
-        st.subheader("解析結果")
+            if response.status_code == 200:
+                result = response.json()
+                st.subheader("解析結果")
 
-        if "answer" in result:
-            st.write(result["answer"])
-        else:
-            st.write(result)
+                if "answer" in result:
+                    st.write(result["answer"])
+                else:
+                    st.write(result)
+            else:
+                st.error(f"APIエラー：{response.status_code}")
+                st.write(response.text)
+
+        except requests.exceptions.Timeout:
+            st.error("Difyの応答が30秒以内に返ってきませんでした。Dify側の処理が重い可能性があります。")
+
+        except Exception as e:
+            st.error("エラーが発生しました。")
+            st.write(str(e))
