@@ -34,25 +34,30 @@ def run_dify_receipt_workflow(receipt_text):
         timeout=120
     )
 
-    response.raise_for_status()
-    return response.json()
+    return response
 
 if st.button("レシートを解析する"):
     if receipt_text.strip() == "":
         st.warning("レシート内容を入力してください。")
     else:
         with st.spinner("Difyでレシートを解析しています..."):
-            result = run_dify_receipt_workflow(receipt_text)
+            response = run_dify_receipt_workflow(receipt_text)
 
-        st.subheader("解析結果")
+        st.subheader("APIステータス")
+        st.write(response.status_code)
 
-        try:
-            outputs = result["data"]["outputs"]
+        st.subheader("APIレスポンス本文")
+        st.write(response.text)
+
+        if response.status_code == 200:
+            result = response.json()
+            st.subheader("解析結果")
+
+            outputs = result.get("data", {}).get("outputs", {})
 
             if "answer" in outputs:
                 st.write(outputs["answer"])
             else:
                 st.write(outputs)
-
-        except Exception:
-            st.write(result)
+        else:
+            st.error("Dify API呼び出しに失敗しています。上のステータスとレスポンス本文を確認してください。")
