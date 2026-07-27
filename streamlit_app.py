@@ -19,13 +19,14 @@ def run_dify(receipt_text):
         "Content-Type": "application/json"
     }
 
-    payload = {
-        "inputs": {},
-        "query": receipt_text,
-        "response_mode": "blocking",
-        "user": "demo-user"
-    }
-
+  payload = {
+    "inputs": {
+        "receipt_text": receipt_text
+    },
+    "query": "レシート内容を解析してください。",
+    "response_mode": "blocking",
+    "user": "demo-user"
+}
     response = requests.post(
         url,
         headers=headers,
