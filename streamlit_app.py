@@ -3,7 +3,10 @@ import requests
 
 st.title("AI献立提案アプリ")
 
-st.write("レシート内容を入力すると、Difyのレシート解析AIを呼び出します。")
+st.write("レシート内容を入力し、AIの解析結果を人間が確認・修正して在庫登録します。")
+
+if "inventory" not in st.session_state:
+    st.session_state.inventory = []
 
 receipt_text = st.text_area(
     "レシート内容",
@@ -38,40 +41,71 @@ def run_dify(receipt_text):
 
     return response
 
+st.divider()
+
 if st.button("レシートを解析する"):
     if receipt_text.strip() == "":
         st.warning("レシート内容を入力してください。")
     else:
-        try:
-            with st.spinner("Difyでレシートを解析しています..."):
-                response = run_dify(receipt_text)
+        with st.spinner("Difyでレシートを解析しています..."):
+            response = run_dify(receipt_text)
 
-            if response.status_code == 200:
-                result = response.json()
+        if response.status_code == 200:
+            result = response.json()
 
-                st.subheader("解析結果")
+            answer = None
 
-                answer = None
+            if "data" in result:
+                outputs = result.get("data", {}).get("outputs", {})
+                answer = outputs.get("answer")
 
-                if "data" in result:
-                    outputs = result.get("data", {}).get("outputs", {})
-                    answer = outputs.get("answer")
+            if answer is None:
+                answer = result.get("answer")
 
-                if answer is None:
-                    answer = result.get("answer")
+            st.session_state.ai_result = answer
 
-                if answer:
-                    st.write(answer)
-                else:
-                    st.write(result)
+        else:
+            st.error(f"APIエラー：{response.status_code}")
+            st.write(response.text)
 
-            else:
-                st.error(f"APIエラー：{response.status_code}")
-                st.write(response.text)
+if "ai_result" in st.session_state:
+    st.subheader("AI解析結果")
+    st.write(st.session_state.ai_result)
 
-        except requests.exceptions.Timeout:
-            st.error("Difyの応答が60秒以内に返ってきませんでした。")
+st.divider()
 
-        except Exception as e:
-            st.error("エラーが発生しました。")
-            st.write(str(e))
+st.subheader("在庫登録内容を人間が確認・修正")
+
+food_name = st.text_input("登録する食材名", placeholder="例：卵")
+quantity = st.text_input("数量", placeholder="例：1")
+unit = st.selectbox(
+    "単位",
+    ["個", "袋", "パック", "本", "玉", "束", "g", "kg", "不明"]
+)
+category = st.selectbox(
+    "カテゴリ",
+    ["野菜", "肉", "魚", "卵", "乳製品", "大豆製品", "穀物", "主食", "果物", "発酵食品", "飲料", "調味料", "その他食品"]
+)
+
+if st.button("在庫に追加する"):
+    if food_name.strip() == "":
+        st.warning("食材名を入力してください。")
+    else:
+        st.session_state.inventory.append(
+            {
+                "食材名": food_name,
+                "数量": quantity,
+                "単位": unit,
+                "カテゴリ": category
+            }
+        )
+        st.success(f"{food_name} を在庫に追加しました。")
+
+st.divider()
+
+st.subheader("現在の在庫一覧")
+
+if len(st.session_state.inventory) == 0:
+    st.info("まだ在庫が登録されていません。")
+else:
+    st.table(st.session_state.inventory)
