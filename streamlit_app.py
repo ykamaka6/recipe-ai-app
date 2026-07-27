@@ -12,6 +12,9 @@ if "candidates" not in st.session_state:
 if "inventory" not in st.session_state:
     st.session_state.inventory = []
 
+if "ai_answer" not in st.session_state:
+    st.session_state.ai_answer = ""
+
 receipt_text = st.text_area(
     "レシート内容",
     placeholder="レシートの商品名を1行ずつ入力してください\n例：\nこくうまキムチ\nキャベツ\nあいちっこプレミアム\nセンザイ"
@@ -60,8 +63,15 @@ def get_answer(result):
     return str(result)
 
 
+def clean_text(text):
+    text = re.sub(r"<br\s*/?>", "\n", text)
+    text = re.sub(r"</li>", "\n", text)
+    text = re.sub(r"<[^>]+>", "", text)
+    return text
+
+
 def extract_value(block, label):
-    pattern = rf"{label}\s*[:：]\s*(.*)"
+    pattern = rf"{label}\s*[:：]\s*([^\n]+)"
     match = re.search(pattern, block)
     if match:
         return match.group(1).strip()
@@ -69,68 +79,72 @@ def extract_value(block, label):
 
 
 def parse_answer(answer):
+    cleaned = clean_text(answer)
     candidates = []
 
-    blocks = re.split(r"\n\s*\d+[\.\)]\s*", "\n" + answer)
+    blocks = re.split(r"\n\s*\d+[\.\)]\s*", "\n" + cleaned)
 
-    for block i* blocks:
-        block = block.str*p()
+    for block in blocks:
+        block = block.strip()
 
         if not block:
-       *    continue
+            continue
 
-        receipt_name*= extract_value(block, "レシート上の商品名"*
-        food_name = extract_value*block, "推定される食材名")
-        quantit* = extract_value(block, "購入数量")
-  *     unit = extract_value(block, "*入単位")
-        category = extract_v*lue(block, "カテゴリ")
-        invento*y_target = extract_value(block, "在*管理対象")
-        confidence = extrac*_value(block, "確信度")
-        user_*heck = extract_value(block, "ユーザー確*")
+        receipt_name = extract_value(block, "レシート上の商品名")
+        food_name = extract_value(block, "推定される食材名")
+        quantity = extract_value(block, "購入数量")
+        unit = extract_value(block, "購入単位")
+        category = extract_value(block, "カテゴリ")
+        inventory_target = extract_value(block, "在庫管理対象")
+        confidence = extract_value(block, "確信度")
+        user_check = extract_value(block, "ユーザー確認")
 
         if not receipt_name:
- *          first_line = block.split*"\n")[0].strip()
-            recei*t_name = first_line
+            first_line = block.split("\n")[0].strip()
+            receipt_name = first_line
 
-        if no* food_name:
-            food_name * receipt_name
+        if not food_name:
+            food_name = receipt_name
 
-        register_fl*g = True
+        register_flag = True
 
-        if inventory_tar*et == "対象外":
-            register_*lag = False
+        if inventory_target == "対象外":
+            register_flag = False
 
-        if "食品ではない" i* food_name:
-            register_f*ag = False
+        if "食品ではない" in food_name:
+            register_flag = False
 
-        if food_name i* ["センザイ", "洗剤", "シャンプー", "ラップ"]:
- *          register_flag = False
+        if receipt_name in ["センザイ", "洗剤", "シャンプー", "ラップ", "電池"]:
+            register_flag = False
 
- *      confirm_status = "登録可能"
+        if food_name in ["センザイ", "洗剤", "シャンプー", "ラップ", "電池"]:
+            register_flag = False
 
-   *    if user_check == "必要" or confi*ence == "低":
-            confirm_s*atus = "要確認"
+        confirm_status = "登録可能"
 
-        candidates.a*pend(
+        if user_check == "必要" or confidence == "低":
+            confirm_status = "要確認"
+
+        candidates.append(
             {
-              * "登録する": register_flag,
-          *     "元の商品名": receipt_name,
-      *         "食材名": food_name,
-       *        "数量": quantity if quantity*else "1",
-                "単位": un*t if unit else "不明",
-             *  "カテゴリ": category if category els* "その他食品",
-                "確認状態": *onfirm_status
+                "登録する": register_flag,
+                "元の商品名": receipt_name,
+                "食材名": food_name,
+                "数量": quantity if quantity else "1",
+                "単位": unit if unit else "不明",
+                "カテゴリ": category if category else "その他食品",
+                "確認状態": confirm_status
             }
-      * )
+        )
 
     return candidates
 
 
-st.div*der()
+st.divider()
 
 if st.button("レシートを解析する"):
-*   if receipt_text.strip() == "":
-*       st.warning("レシート内容を入力してください。")
+    if not receipt_text.strip():
+        st.warning("レシート内容を入力してください。")
     else:
         try:
             with st.spinner("Difyでレシートを解析しています..."):
@@ -148,7 +162,7 @@ if st.button("レシートを解析する"):
             st.write(str(error))
 
 
-if "ai_answer" in st.session_state:
+if st.session_state.ai_answer:
     st.subheader("AI解析結果")
     st.write(st.session_state.ai_answer)
 
