@@ -51,10 +51,20 @@ if st.button("レシートを解析する"):
 
                 st.subheader("解析結果")
 
-                if "answer" in result:
-                    st.write(result["answer"])
+                answer = None
+
+                if "data" in result:
+                    outputs = result.get("data", {}).get("outputs", {})
+                    answer = outputs.get("answer")
+
+                if answer is None:
+                    answer = result.get("answer")
+
+                if answer:
+                    st.write(answer)
                 else:
                     st.write(result)
+
             else:
                 st.error(f"APIエラー：{response.status_code}")
                 st.write(response.text)
