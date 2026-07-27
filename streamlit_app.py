@@ -20,7 +20,10 @@ def run_dify(receipt_text):
     }
 
     payload = {
-        "inputs": {},
+        "inputs": {
+            "receipt_text": receipt_text,
+            "レシート内容": receipt_text
+        },
         "query": receipt_text,
         "response_mode": "blocking",
         "user": "demo-user"
