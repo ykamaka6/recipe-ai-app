@@ -61,14 +61,15 @@ def get_answer(result):
     return str(result)
 
 
-def clean_text(text):
+def strip_html(text):
     text = str(text)
     text = text.replace("<br>", "\n")
     text = text.replace("<br/>", "\n")
     text = text.replace("<br />", "\n")
     text = text.replace("</li>", "\n")
+    text = re.sub(r"<li[^>]*>", "・", text)
     text = re.sub(r"<[^>]+>", "", text)
-    return text
+    return text.strip()
 
 
 def extract_value(block, label):
@@ -101,7 +102,7 @@ def is_suspicious_food_name(food_name):
 
 
 def parse_answer(answer):
-    cleaned = clean_text(answer)
+    cleaned = strip_html(answer)
     candidates = []
     blocks = re.split(r"\n\s*\d+[\.)]\s*", "\n" + cleaned)
 
@@ -126,7 +127,6 @@ def parse_answer(answer):
             if "推定される食材名" in first_line:
                 first_line = first_line.split("推定される食材名")[0].strip()
             receipt_name = first_line
-
         if not food_name:
             food_name = receipt_name
 
@@ -136,7 +136,6 @@ def parse_answer(answer):
         if inventory_target == "対象外" or "食品ではない" in food_name:
             register_decision = "登録しない"
             confirm_status = "要確認"
-
         if user_check == "必要" or confidence == "低" or is_suspicious_food_name(food_name):
             register_decision = "登録しない"
             confirm_status = "要確認"
@@ -150,7 +149,6 @@ def parse_answer(answer):
             "カテゴリ": category if category else "その他食品",
             "確認状態": confirm_status
         })
-
     return candidates
 
 
@@ -161,6 +159,79 @@ def inventory_to_text(inventory_list):
             f"{item.get('食材名', '')} {item.get('数量', '')}{item.get('単位', '')} カテゴリ:{item.get('カテゴリ', '')}"
         )
     return "\n".join(lines)
+
+
+def build_recipe_query(inventory_text, family_profile, avoid_foods, health_goal, cooking_time):
+    return f"""
+あなたは家庭向けの献立提案AIです。
+以下の条件から、今日の夕食を1つだけ提案してください。
+
+在庫一覧：
+{inventory_text}
+
+家族条件：
+{family_profile}
+
+避ける食材・避ける条件：
+{avoid_foods}
+
+健康目標：
+{health_goal}
+
+調理時間：
+{cooking_time}
+
+最優先ルール：
+・家族条件、避ける食材、苦手な味、アレルギー条件を最優先してください。
+・在庫食材をすべて使う必要はありません。
+・在庫にあっても、家族条件や避ける条件に合わない食材は使わないでください。
+・食材ごとに、辛さ、苦味、硬さ、脂っこさ、塩分、食べやすさを判断してください。
+・条件に合わない可能性がある食材は、無理に使わず「今回使わない在庫食材」に入れてください。
+・食品ロス削減は大事ですが、家族条件や食べやすさより優先しないでください。
+・献立として自然で、実際に家庭で食べられるものにしてください。
+
+調味料ルール：
+・塩、こしょう、醤油、みそ、砂糖、酢、油、ごま油、みりん、酒、だし、コンソメ、マヨネーズ、ケチャップは基本調味料として扱ってください。
+・基本調味料は「買い足す食材」に入れないでください。
+・使う基本調味料は「家庭にある前提の調味料」に書いてください。
+・特殊な調味料だけ、必要な場合に買い足す食材へ入れてください。
+
+出力ルール：
+・HTMLタグを使わないでください。
+・説明は短くしてください。
+・レシピ以外の説明は各項目1行までにしてください。
+・文字数は全体で600字以内にしてください。
+・「健康に良いです」を繰り返さないでください。
+
+出力形式：
+献立名：
+
+使用する在庫食材：
+・
+
+今回使わない在庫食材：
+・食材名：理由
+
+買い足す食材：
+・なし、または必要な食材だけ
+
+家庭にある前提の調味料：
+・
+
+作り方：
+1.
+2.
+3.
+
+提案理由：
+・
+
+食品ロス削減：
+・
+
+健康補助：
+・
+"""
 
 
 receipt_text = st.text_area(
@@ -180,7 +251,7 @@ if st.button("レシートを解析する"):
                     {"receipt_text": receipt_text, "レシート内容": receipt_text}
                 )
             answer = get_answer(result)
-            st.session_state.ai_answer = answer
+            st.session_state.ai_answer = strip_html(answer)
             st.session_state.candidates = parse_answer(answer)
         except Exception as error:
             st.error("レシート解析でエラーが発生しました。")
@@ -285,9 +356,9 @@ st.session_state.family_profile = st.text_area(
     placeholder="例：大人2人、子ども1人。子どもは辛いものが苦手。"
 )
 st.session_state.avoid_foods = st.text_input(
-    "避ける食材",
+    "避ける食材・避ける条件",
     value=st.session_state.avoid_foods,
-    placeholder="例：えび、そば"
+    placeholder="例：辛いもの、えび、そば"
 )
 st.session_state.health_goal = st.text_input(
     "健康目標",
@@ -308,60 +379,13 @@ if st.button("献立を提案する"):
     if not inventory_text:
         st.warning("先に在庫を登録してください。")
     else:
-        recipe_query = f"""
-あなたは家庭向けの献立提案AIです。
-
-以下の条件をもとに、今日の夕食の献立を1つ提案してください。
-
-優先順位：
-1. 避ける食材、アレルギー、苦手な味を最優先する
-2. 家族条件に合う食べやすさを優先する
-3. 健康目標に配慮する
-4. 調理時間に収まるようにする
-5. 条件に合う在庫食材だけを使う
-6. 食品ロス削減は大事だが、家族条件より優先しない
-
-重要ルール：
-・在庫食材をすべて使い切る必要はありません。
-・在庫にあっても、家族条件や避ける食材に合わないものは使わないでください。
-・食材の辛さ、苦味、硬さ、脂っこさ、塩分、食べやすさを考えてください。
-・判断に迷う在庫食材は無理に使わず、「今回使わない在庫食材」に入れてください。
-・基本調味料は、多くの家庭にある前提として扱ってください。
-・基本調味料は「買い足す食材」に入れないでください。
-・基本調味料を使う場合は「家庭にある前提の調味料」に書いてください。
-・献立として自然で、実際に食べられる料理を提案してください。
-・買い足す食材は必要最小限にしてください。
-・医療的な診断や治療助言はしないでください。
-
-基本調味料の例：
-塩、こしょう、醤油、みそ、砂糖、酢、油、ごま油、みりん、酒、だし、コンソメ、マヨネーズ、ケチャップ
-
-在庫一覧：
-{inventory_text}
-
-家族条件：
-{st.session_state.family_profile}
-
-避ける食材：
-{st.session_state.avoid_foods}
-
-健康目標：
-{st.session_state.health_goal}
-
-調理時間：
-{st.session_state.cooking_time}
-
-出力内容：
-1. 献立名
-2. 使用する在庫食材
-3. 今回使わない在庫食材
-4. 買い足す食材
-5. 家庭にある前提の調味料
-6. 簡単な作り方
-7. この献立を提案した理由
-8. 食品ロス削減につながる理由
-9. 健康補助の観点
-"""
+        recipe_query = build_recipe_query(
+            inventory_text,
+            st.session_state.family_profile,
+            st.session_state.avoid_foods,
+            st.session_state.health_goal,
+            st.session_state.cooking_time
+        )
         recipe_inputs = {
             "inventory": inventory_text,
             "在庫一覧": inventory_text,
@@ -377,7 +401,7 @@ if st.button("献立を提案する"):
         try:
             with st.spinner("Difyで献立を提案しています..."):
                 result = call_dify(st.secrets["RECIPE_API_KEY"], recipe_query, recipe_inputs)
-            st.session_state.recipe_answer = get_answer(result)
+            st.session_state.recipe_answer = strip_html(get_answer(result))
             st.session_state.show_consumption_editor = False
         except Exception as error:
             st.error("献立提案でエラーが発生しました。")
