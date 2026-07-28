@@ -22,6 +22,16 @@ if "health_goal" not in st.session_state:
     st.session_state.health_goal = ""
 if "cooking_time" not in st.session_state:
     st.session_state.cooking_time = ""
+if "last_added_items" not in st.session_state:
+    st.session_state.last_added_items = []
+if "show_consumption_editor" not in st.session_state:
+    st.session_state.show_consumption_editor = False
+
+CATEGORY_OPTIONS = [
+    "野菜", "肉", "魚", "卵", "乳製品", "大豆製品", "穀物", "主食", "果物",
+    "発酵食品", "飲料", "調味料", "その他食品"
+]
+UNIT_OPTIONS = ["個", "袋", "パック", "本", "玉", "束", "g", "kg", "不明"]
 
 
 def call_dify(api_key, query, inputs=None):
@@ -116,6 +126,7 @@ def parse_answer(answer):
             if "推定される食材名" in first_line:
                 first_line = first_line.split("推定される食材名")[0].strip()
             receipt_name = first_line
+
         if not food_name:
             food_name = receipt_name
 
@@ -154,7 +165,7 @@ def inventory_to_text(inventory_list):
 
 receipt_text = st.text_area(
     "レシート内容",
-    placeholder="レシートの商品名を1行ずつ入力してください\n例：\nこくうまキムチ\nキャベツ\nあいちっこプレミアム"
+    placeholder="レシートの商品名を1行ずつ入力してください\n例：\n卵\nキャベツ\n鶏むね肉"
 )
 
 if st.button("レシートを解析する"):
@@ -166,10 +177,7 @@ if st.button("レシートを解析する"):
                 result = call_dify(
                     st.secrets["DIFY_API_KEY"],
                     receipt_text,
-                    {
-                        "receipt_text": receipt_text,
-                        "レシート内容": receipt_text
-                    }
+                    {"receipt_text": receipt_text, "レシート内容": receipt_text}
                 )
             answer = get_answer(result)
             st.session_state.ai_answer = answer
@@ -195,28 +203,13 @@ else:
         use_container_width=True,
         num_rows="dynamic",
         column_config={
-            "登録判定": st.column_config.SelectboxColumn(
-                "登録判定",
-                options=["登録する", "登録しない"]
-            ),
+            "登録判定": st.column_config.SelectboxColumn("登録判定", options=["登録する", "登録しない"]),
             "元の商品名": st.column_config.TextColumn("元の商品名"),
             "食材名": st.column_config.TextColumn("食材名"),
             "数量": st.column_config.TextColumn("数量"),
-            "単位": st.column_config.SelectboxColumn(
-                "単位",
-                options=["個", "袋", "パック", "本", "玉", "束", "g", "kg", "不明"]
-            ),
-            "カテゴリ": st.column_config.SelectboxColumn(
-                "カテゴリ",
-                options=[
-                    "野菜", "肉", "魚", "卵", "乳製品", "大豆製品", "穀物",
-                    "主食", "果物", "発酵食品", "飲料", "調味料", "その他食品"
-                ]
-            ),
-            "確認状態": st.column_config.SelectboxColumn(
-                "確認状態",
-                options=["登録可能", "要確認"]
-            )
+            "単位": st.column_config.SelectboxColumn("単位", options=UNIT_OPTIONS),
+            "カテゴリ": st.column_config.SelectboxColumn("カテゴリ", options=CATEGORY_OPTIONS),
+            "確認状態": st.column_config.SelectboxColumn("確認状態", options=["登録可能", "要確認"])
         }
     )
 
@@ -235,6 +228,7 @@ else:
                     "確認状態": str(row["確認状態"])
                 })
             st.session_state.inventory.extend(new_items)
+            st.session_state.last_added_items = new_items
             st.success(f"{len(new_items)}件を在庫に登録しました。")
             st.rerun()
 
@@ -244,7 +238,43 @@ st.subheader("現在の在庫一覧")
 if len(st.session_state.inventory) == 0:
     st.info("まだ在庫は登録されていません。")
 else:
-    st.dataframe(pd.DataFrame(st.session_state.inventory), use_container_width=True)
+    inventory_df = pd.DataFrame(st.session_state.inventory)
+    inventory_df.insert(0, "削除", False)
+
+    edited_inventory_df = st.data_editor(
+        inventory_df,
+        key="inventory_editor",
+        use_container_width=True,
+        num_rows="dynamic",
+        column_config={
+            "削除": st.column_config.CheckboxColumn("削除"),
+            "食材名": st.column_config.TextColumn("食材名"),
+            "数量": st.column_config.TextColumn("数量"),
+            "単位": st.column_config.SelectboxColumn("単位", options=UNIT_OPTIONS),
+            "カテゴリ": st.column_config.SelectboxColumn("カテゴリ", options=CATEGORY_OPTIONS),
+            "確認状態": st.column_config.SelectboxColumn("確認状態", options=["登録可能", "要確認"])
+        }
+    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("在庫一覧の編集を保存する"):
+            kept_df = edited_inventory_df[edited_inventory_df["削除"] == False].drop(columns=["削除"])
+            st.session_state.inventory = kept_df.to_dict("records")
+            st.success("在庫一覧を更新しました。")
+            st.rerun()
+
+    with col2:
+        if st.button("直前の在庫登録を取り消す"):
+            if len(st.session_state.last_added_items) == 0:
+                st.warning("取り消せる直前登録がありません。")
+            else:
+                remove_count = len(st.session_state.last_added_items)
+                st.session_state.inventory = st.session_state.inventory[:-remove_count]
+                st.session_state.last_added_items = []
+                st.success("直前の登録を取り消しました。")
+                st.rerun()
 
 st.divider()
 st.subheader("献立提案")
@@ -296,9 +326,15 @@ if st.button("献立を提案する"):
 ・在庫にあっても、家族条件や避ける食材に合わないものは使わないでください。
 ・食材の辛さ、苦味、硬さ、脂っこさ、塩分、食べやすさを考えてください。
 ・判断に迷う在庫食材は無理に使わず、「今回使わない在庫食材」に入れてください。
+・基本調味料は、多くの家庭にある前提として扱ってください。
+・基本調味料は「買い足す食材」に入れないでください。
+・基本調味料を使う場合は「家庭にある前提の調味料」に書いてください。
 ・献立として自然で、実際に食べられる料理を提案してください。
 ・買い足す食材は必要最小限にしてください。
 ・医療的な診断や治療助言はしないでください。
+
+基本調味料の例：
+塩、こしょう、醤油、みそ、砂糖、酢、油、ごま油、みりん、酒、だし、コンソメ、マヨネーズ、ケチャップ
 
 在庫一覧：
 {inventory_text}
@@ -320,10 +356,11 @@ if st.button("献立を提案する"):
 2. 使用する在庫食材
 3. 今回使わない在庫食材
 4. 買い足す食材
-5. 簡単な作り方
-6. この献立を提案した理由
-7. 食品ロス削減につながる理由
-8. 健康補助の観点
+5. 家庭にある前提の調味料
+6. 簡単な作り方
+7. この献立を提案した理由
+8. 食品ロス削減につながる理由
+9. 健康補助の観点
 """
         recipe_inputs = {
             "inventory": inventory_text,
@@ -341,6 +378,7 @@ if st.button("献立を提案する"):
             with st.spinner("Difyで献立を提案しています..."):
                 result = call_dify(st.secrets["RECIPE_API_KEY"], recipe_query, recipe_inputs)
             st.session_state.recipe_answer = get_answer(result)
+            st.session_state.show_consumption_editor = False
         except Exception as error:
             st.error("献立提案でエラーが発生しました。")
             st.write(str(error))
@@ -348,3 +386,39 @@ if st.button("献立を提案する"):
 if st.session_state.recipe_answer:
     st.subheader("献立提案結果")
     st.write(st.session_state.recipe_answer)
+
+    if st.button("この献立を作ったので在庫を更新する"):
+        st.session_state.show_consumption_editor = True
+
+if st.session_state.show_consumption_editor:
+    st.divider()
+    st.subheader("作った後の在庫更新")
+    st.write("レシピで使った分に合わせて、数量を修正するか、使い切った食材を削除してください。")
+
+    if len(st.session_state.inventory) == 0:
+        st.info("在庫がありません。")
+    else:
+        consumption_df = pd.DataFrame(st.session_state.inventory)
+        consumption_df.insert(0, "削除", False)
+
+        edited_consumption_df = st.data_editor(
+            consumption_df,
+            key="consumption_editor",
+            use_container_width=True,
+            num_rows="dynamic",
+            column_config={
+                "削除": st.column_config.CheckboxColumn("削除"),
+                "食材名": st.column_config.TextColumn("食材名"),
+                "数量": st.column_config.TextColumn("数量"),
+                "単位": st.column_config.SelectboxColumn("単位", options=UNIT_OPTIONS),
+                "カテゴリ": st.column_config.SelectboxColumn("カテゴリ", options=CATEGORY_OPTIONS),
+                "確認状態": st.column_config.SelectboxColumn("確認状態", options=["登録可能", "要確認"])
+            }
+        )
+
+        if st.button("作った後の在庫更新を保存する"):
+            updated_df = edited_consumption_df[edited_consumption_df["削除"] == False].drop(columns=["削除"])
+            st.session_state.inventory = updated_df.to_dict("records")
+            st.session_state.show_consumption_editor = False
+            st.success("作った後の在庫を更新しました。")
+            st.rerun()
