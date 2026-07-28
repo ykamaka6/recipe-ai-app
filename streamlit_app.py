@@ -8,51 +8,35 @@ st.write("レシート内容を入力し、AIの解析結果を確認・修正�
 
 if "candidates" not in st.session_state:
     st.session_state.candidates = []
-
 if "inventory" not in st.session_state:
     st.session_state.inventory = []
-
 if "ai_answer" not in st.session_state:
     st.session_state.ai_answer = ""
-
 if "recipe_answer" not in st.session_state:
     st.session_state.recipe_answer = ""
-
 if "family_profile" not in st.session_state:
     st.session_state.family_profile = ""
-
 if "avoid_foods" not in st.session_state:
     st.session_state.avoid_foods = ""
-
 if "health_goal" not in st.session_state:
     st.session_state.health_goal = ""
-
 if "cooking_time" not in st.session_state:
     st.session_state.cooking_time = ""
 
 
 def call_dify(api_key, query, inputs=None):
     url = st.secrets["DIFY_API_URL"]
-
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
-
     payload = {
         "inputs": inputs or {},
         "query": query,
         "response_mode": "blocking",
         "user": "demo-user"
     }
-
-    response = requests.post(
-        url,
-        headers=headers,
-        json=payload,
-        timeout=60
-    )
-
+    response = requests.post(url, headers=headers, json=payload, timeout=60)
     response.raise_for_status()
     return response.json()
 
@@ -62,10 +46,8 @@ def get_answer(result):
         outputs = result.get("data", {}).get("outputs", {})
         if "answer" in outputs:
             return outputs["answer"]
-
     if "answer" in result:
         return result["answer"]
-
     return str(result)
 
 
@@ -91,23 +73,39 @@ def extract_value(block, label):
         "確信度",
         "ユーザー確認"
     ]
-
     other_labels = [item for item in labels if item != label]
     next_label_pattern = "|".join([re.escape(item) for item in other_labels])
-
     pattern = rf"{re.escape(label)}\s*[:：]\s*(.*?)(?=\s*(?:{next_label_pattern})\s*[:：]|$)"
     match = re.search(pattern, block, flags=re.DOTALL)
-
     if match:
         return match.group(1).strip()
-
     return ""
+
+
+def is_suspicious_food_name(food_name):
+    text = str(food_name).strip()
+
+    if text == "":
+        return True
+
+    suspicious_markers = [
+        "または",
+        "不明",
+        "推測",
+        "候補",
+        "?",
+        "？",
+        "（中）",
+        "(中)",
+        "低確信度"
+    ]
+
+    return any(marker in text for marker in suspicious_markers)
 
 
 def parse_answer(answer):
     cleaned = clean_text(answer)
     candidates = []
-
     blocks = re.split(r"\n\s*\d+[\.)]\s*", "\n" + cleaned)
 
     for block in blocks:
@@ -138,13 +136,14 @@ def parse_answer(answer):
             food_name = receipt_name
 
         register_decision = "登録する"
+        confirm_status = "登録可能"
 
         if inventory_target == "対象外" or "食品ではない" in food_name:
             register_decision = "登録しない"
+            confirm_status = "要確認"
 
-        confirm_status = "登録可能"
-
-        if user_check == "必要" or confidence == "低":
+        if user_check == "必要" or confidence == "低" or is_suspicious_food_name(food_name):
+            register_decision = "登録しない"
             confirm_status = "要確認"
 
         candidates.append({
@@ -162,12 +161,10 @@ def parse_answer(answer):
 
 def inventory_to_text(inventory_list):
     lines = []
-
     for item in inventory_list:
         lines.append(
             f"{item.get('食材名', '')} {item.get('数量', '')}{item.get('単位', '')} カテゴリ:{item.get('カテゴリ', '')}"
         )
-
     return "\n".join(lines)
 
 
@@ -190,11 +187,9 @@ if st.button("レシートを解析する"):
                         "レシート内容": receipt_text
                     }
                 )
-
             answer = get_answer(result)
             st.session_state.ai_answer = answer
             st.session_state.candidates = parse_answer(answer)
-
         except Exception as error:
             st.error("レシート解析でエラーが発生しました。")
             st.write(str(error))
@@ -204,7 +199,6 @@ if st.session_state.ai_answer:
     st.write(st.session_state.ai_answer)
 
 st.divider()
-
 st.subheader("在庫登録前の確認・修正")
 
 if len(st.session_state.candidates) == 0:
@@ -232,19 +226,8 @@ else:
             "カテゴリ": st.column_config.SelectboxColumn(
                 "カテゴリ",
                 options=[
-                    "野菜",
-                    "肉",
-                    "魚",
-                    "卵",
-                    "乳製品",
-                    "大豆製品",
-                    "穀物",
-                    "主食",
-                    "果物",
-                    "発酵食品",
-                    "飲料",
-                    "調味料",
-                    "その他食品"
+                    "野菜", "肉", "魚", "卵", "乳製品", "大豆製品", "穀物",
+                    "主食", "果物", "発酵食品", "飲料", "調味料", "その他食品"
                 ]
             ),
             "確認状態": st.column_config.SelectboxColumn(
@@ -276,7 +259,6 @@ else:
             st.rerun()
 
 st.divider()
-
 st.subheader("現在の在庫一覧")
 
 if len(st.session_state.inventory) == 0:
@@ -285,7 +267,6 @@ else:
     st.dataframe(pd.DataFrame(st.session_state.inventory), use_container_width=True)
 
 st.divider()
-
 st.subheader("献立提案")
 
 st.session_state.family_profile = st.text_area(
@@ -348,7 +329,6 @@ if st.button("献立を提案する"):
 6. 食品ロス削減につながる理由
 7. 健康補助の観点
 """
-
         recipe_inputs = {
             "inventory": inventory_text,
             "在庫一覧": inventory_text,
@@ -364,11 +344,7 @@ if st.button("献立を提案する"):
 
         try:
             with st.spinner("Difyで献立を提案しています..."):
-                result = call_dify(
-                    st.secrets["RECIPE_API_KEY"],
-                    recipe_query,
-                    recipe_inputs
-                )
+                result = call_dify(st.secrets["RECIPE_API_KEY"], recipe_query, recipe_inputs)
 
             st.session_state.recipe_answer = get_answer(result)
 
