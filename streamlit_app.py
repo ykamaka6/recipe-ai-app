@@ -15,15 +15,17 @@ if "inventory" not in st.session_state:
 if "ai_answer" not in st.session_state:
     st.session_state.ai_answer = ""
 
+if "recipe_answer" not in st.session_state:
+    st.session_state.recipe_answer = ""
+
 receipt_text = st.text_area(
     "レシート内容",
     placeholder="レシートの商品名を1行ずつ入力してください\n例：\nこくうまキムチ\nキャベツ\nあいちっこプレミアム\n洗剤"
 )
 
 
-def run_dify(text):
+def run_dify_chat(api_key, query, inputs=None):
     url = st.secrets["DIFY_API_URL"]
-    api_key = st.secrets["DIFY_API_KEY"]
 
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -31,11 +33,8 @@ def run_dify(text):
     }
 
     payload = {
-        "inputs": {
-            "receipt_text": text,
-            "レシート内容": text
-        },
-        "query": text,
+        "inputs": inputs or {},
+        "query": query,
         "response_mode": "blocking",
         "user": "demo-user"
     }
@@ -170,6 +169,18 @@ def parse_answer(answer):
     return candidates
 
 
+def inventory_to_text(inventory_list):
+    if not inventory_list:
+        return ""
+
+    lines = []
+    for item in inventory_list:
+        lines.append(
+            f"{item.get('食材名', '')} {item.get('数量', '')}{item.get('単位', '')} カテゴリ:{item.get('カテゴリ', '')}"
+        )
+    return "\n".join(lines)
+
+
 st.divider()
 
 if st.button("レシートを解析する"):
@@ -178,7 +189,14 @@ if st.button("レシートを解析する"):
     else:
         try:
             with st.spinner("Difyでレシートを解析しています..."):
-                result = run_dify(receipt_text)
+                result = run_dify_chat(
+                    st.secrets["DIFY_API_KEY"],
+                    receipt_text,
+                    {
+                        "receipt_text": receipt_text,
+                        "レシート内容": receipt_text
+                    }
+                )
 
             answer = get_answer(result)
             st.session_state.ai_answer = answer
@@ -274,3 +292,95 @@ if len(st.session_state.inventory) == 0:
 else:
     inventory_df = pd.DataFrame(st.session_state.inventory)
     st.dataframe(inventory_df, use_container_width=True)
+
+st.divider()
+
+st.subheader("献立提案")
+
+family_profile = st.text_area(
+    "家族条件",
+    placeholder="例：大人2人、子ども1人。子どもは辛いものが苦手。"
+)
+
+avoid_foods = st.text_input(
+    "避ける食材",
+    placeholder="例：えび、そば"
+)
+
+health_goal = st.text_input(
+    "健康目標",
+    placeholder="例：野菜多め、塩分控えめ"
+)
+
+cooking_time = st.text_input(
+    "調理時間",
+    placeholder="例：30分以内"
+)
+
+if st.button("献立を提案する"):
+    inventory_text = inventory_to_text(st.session_state.inventory)
+
+    if not inventory_text:
+        st.warning("先に在庫を登録してください。")
+    else:
+        recipe_query = f"""
+以下の条件をもとに、今日の夕食の献立を1つ提案してください。
+
+在庫一覧：
+{inventory_text}
+
+家族条件：
+{family_profile}
+
+避ける食材：
+{avoid_foods}
+
+健康目標：
+{health_goal}
+
+調理時間：
+{cooking_time}
+
+出力内容：
+1. 献立名
+2. 使用する在庫食材
+3. 買い足す食材
+4. 簡単な作り方
+5. この献立を提案した理由
+6. 食品ロス削減につながる理由
+7. 健康補助の観点
+"""
+
+        recipe_inputs = {
+            "inventory": inventory_text,
+            "在庫一覧": inventory_text,
+            "family_profile": family_profile,
+            "家族条件": family_profile,
+            "avoid_foods": avoid_foods,
+            "避ける食材": avoid_foods,
+            "health_goal": health_goal,
+            "健康目標": health_goal,
+            "cooking_time": cooking_time,
+            "調理時間": cooking_time
+        }
+
+        try:
+            with st.spinner("Difyで献立を提案しています..."):
+                result = run_dify_chat(
+                    st.secrets["RECIPE_API_KEY"],
+                    recipe_query,
+                    recipe_inputs
+                )
+
+            st.session_state.recipe_answer = get_answer(result)
+
+        except requests.exceptions.Timeout:
+            st.error("Difyの応答が60秒以内に返ってきませんでした。")
+
+        except Exception as error:
+            st.error("献立提案でエラーが発生しました。")
+            st.write(str(error))
+
+if st.session_state.recipe_answer:
+    st.subheader("献立提案結果")
+    st.write(st.session_state.recipe_answer)
