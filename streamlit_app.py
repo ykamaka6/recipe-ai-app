@@ -84,22 +84,9 @@ def extract_value(block, label):
 
 def is_suspicious_food_name(food_name):
     text = str(food_name).strip()
-
     if text == "":
         return True
-
-    suspicious_markers = [
-        "または",
-        "不明",
-        "推測",
-        "候補",
-        "?",
-        "？",
-        "（中）",
-        "(中)",
-        "低確信度"
-    ]
-
+    suspicious_markers = ["または", "不明", "推測", "候補", "?", "？", "（中）", "(中)", "低確信度"]
     return any(marker in text for marker in suspicious_markers)
 
 
@@ -110,10 +97,8 @@ def parse_answer(answer):
 
     for block in blocks:
         block = block.strip()
-
         if not block:
             continue
-
         if "食材リスト" in block and "推定される食材名" not in block:
             continue
 
@@ -131,7 +116,6 @@ def parse_answer(answer):
             if "推定される食材名" in first_line:
                 first_line = first_line.split("推定される食材名")[0].strip()
             receipt_name = first_line
-
         if not food_name:
             food_name = receipt_name
 
@@ -205,7 +189,6 @@ if len(st.session_state.candidates) == 0:
     st.info("まだ在庫登録候補がありません。レシートを解析してください。")
 else:
     candidate_df = pd.DataFrame(st.session_state.candidates)
-
     edited_df = st.data_editor(
         candidate_df,
         key="candidate_editor",
@@ -239,12 +222,10 @@ else:
 
     if st.button("登録判定が『登録する』の食材を在庫に登録する"):
         selected_df = edited_df[edited_df["登録判定"] == "登録する"]
-
         if selected_df.empty:
             st.warning("登録する食材がありません。登録判定を確認してください。")
         else:
             new_items = []
-
             for _, row in selected_df.iterrows():
                 new_items.append({
                     "食材名": str(row["食材名"]),
@@ -253,7 +234,6 @@ else:
                     "カテゴリ": str(row["カテゴリ"]),
                     "確認状態": str(row["確認状態"])
                 })
-
             st.session_state.inventory.extend(new_items)
             st.success(f"{len(new_items)}件を在庫に登録しました。")
             st.rerun()
@@ -274,19 +254,16 @@ st.session_state.family_profile = st.text_area(
     value=st.session_state.family_profile,
     placeholder="例：大人2人、子ども1人。子どもは辛いものが苦手。"
 )
-
 st.session_state.avoid_foods = st.text_input(
     "避ける食材",
     value=st.session_state.avoid_foods,
     placeholder="例：えび、そば"
 )
-
 st.session_state.health_goal = st.text_input(
     "健康目標",
     value=st.session_state.health_goal,
     placeholder="例：野菜多め、塩分控えめ"
 )
-
 st.session_state.cooking_time = st.text_input(
     "調理時間",
     value=st.session_state.cooking_time,
@@ -298,12 +275,30 @@ if st.button("家族条件を保存する"):
 
 if st.button("献立を提案する"):
     inventory_text = inventory_to_text(st.session_state.inventory)
-
     if not inventory_text:
         st.warning("先に在庫を登録してください。")
     else:
         recipe_query = f"""
+あなたは家庭向けの献立提案AIです。
+
 以下の条件をもとに、今日の夕食の献立を1つ提案してください。
+
+優先順位：
+1. 避ける食材、アレルギー、苦手な味を最優先する
+2. 家族条件に合う食べやすさを優先する
+3. 健康目標に配慮する
+4. 調理時間に収まるようにする
+5. 条件に合う在庫食材だけを使う
+6. 食品ロス削減は大事だが、家族条件より優先しない
+
+重要ルール：
+・在庫食材をすべて使い切る必要はありません。
+・在庫にあっても、家族条件や避ける食材に合わないものは使わないでください。
+・食材の辛さ、苦味、硬さ、脂っこさ、塩分、食べやすさを考えてください。
+・判断に迷う在庫食材は無理に使わず、「今回使わない在庫食材」に入れてください。
+・献立として自然で、実際に食べられる料理を提案してください。
+・買い足す食材は必要最小限にしてください。
+・医療的な診断や治療助言はしないでください。
 
 在庫一覧：
 {inventory_text}
@@ -323,11 +318,12 @@ if st.button("献立を提案する"):
 出力内容：
 1. 献立名
 2. 使用する在庫食材
-3. 買い足す食材
-4. 簡単な作り方
-5. この献立を提案した理由
-6. 食品ロス削減につながる理由
-7. 健康補助の観点
+3. 今回使わない在庫食材
+4. 買い足す食材
+5. 簡単な作り方
+6. この献立を提案した理由
+7. 食品ロス削減につながる理由
+8. 健康補助の観点
 """
         recipe_inputs = {
             "inventory": inventory_text,
@@ -341,13 +337,10 @@ if st.button("献立を提案する"):
             "cooking_time": st.session_state.cooking_time,
             "調理時間": st.session_state.cooking_time
         }
-
         try:
             with st.spinner("Difyで献立を提案しています..."):
                 result = call_dify(st.secrets["RECIPE_API_KEY"], recipe_query, recipe_inputs)
-
             st.session_state.recipe_answer = get_answer(result)
-
         except Exception as error:
             st.error("献立提案でエラーが発生しました。")
             st.write(str(error))
