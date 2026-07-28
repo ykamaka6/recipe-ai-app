@@ -137,13 +137,10 @@ def parse_answer(answer):
         if not food_name:
             food_name = receipt_name
 
-        register_flag = True
+        register_decision = "登録する"
 
-        if inventory_target == "対象外":
-            register_flag = False
-
-        if "食品ではない" in food_name:
-            register_flag = False
+        if inventory_target == "対象外" or "食品ではない" in food_name:
+            register_decision = "登録しない"
 
         confirm_status = "登録可能"
 
@@ -151,7 +148,7 @@ def parse_answer(answer):
             confirm_status = "要確認"
 
         candidates.append({
-            "登録する": register_flag,
+            "登録判定": register_decision,
             "元の商品名": receipt_name,
             "食材名": food_name,
             "数量": quantity if quantity else "1",
@@ -176,7 +173,7 @@ def inventory_to_text(inventory_list):
 
 receipt_text = st.text_area(
     "レシート内容",
-    placeholder="レシートの商品名を1行ずつ入力してください\n例：\nこくうまキムチ\nキャベツ\nあいちっこプレミアム\n洗剤"
+    placeholder="レシートの商品名を1行ずつ入力してください\n例：\nこくうまキムチ\nキャベツ\nあいちっこプレミアム"
 )
 
 if st.button("レシートを解析する"):
@@ -221,7 +218,10 @@ else:
         use_container_width=True,
         num_rows="dynamic",
         column_config={
-            "登録する": st.column_config.CheckboxColumn("登録する"),
+            "登録判定": st.column_config.SelectboxColumn(
+                "登録判定",
+                options=["登録する", "登録しない"]
+            ),
             "元の商品名": st.column_config.TextColumn("元の商品名"),
             "食材名": st.column_config.TextColumn("食材名"),
             "数量": st.column_config.TextColumn("数量"),
@@ -254,11 +254,11 @@ else:
         }
     )
 
-    if st.button("チェックした食材を在庫に登録する"):
-        selected_df = edited_df[edited_df["登録する"].astype(bool)]
+    if st.button("登録判定が『登録する』の食材を在庫に登録する"):
+        selected_df = edited_df[edited_df["登録判定"] == "登録する"]
 
         if selected_df.empty:
-            st.warning("登録する食材にチェックを入れてください。")
+            st.warning("登録する食材がありません。登録判定を確認してください。")
         else:
             new_items = []
 
