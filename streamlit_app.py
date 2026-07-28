@@ -17,7 +17,7 @@ if "ai_answer" not in st.session_state:
 
 receipt_text = st.text_area(
     "レシート内容",
-    placeholder="レシートの商品名を1行ずつ入力してください\n例：\nこくうまキムチ\nキャベツ\nあいちっこプレミアム\nセンザイ"
+    placeholder="レシートの商品名を1行ずつ入力してください\n例：\nこくうまキムチ\nキャベツ\nあいちっこプレミアム\n洗剤"
 )
 
 
@@ -133,7 +133,7 @@ def parse_answer(answer):
 
         register_flag = True
         non_food_words = [
-            "センザイ",
+            
             "洗剤",
             "シャンプー",
             "ラップ",
@@ -207,6 +207,7 @@ else:
 
     edited_df = st.data_editor(
         candidate_df,
+        key="candidate_editor",
         use_container_width=True,
         num_rows="dynamic",
         column_config={
@@ -244,21 +245,25 @@ else:
     )
 
     if st.button("チェックした食材を在庫に登録する"):
-        selected_df = edited_df[edited_df["登録する"] == True]
+        selected_df = edited_df[edited_df["登録する"].astype(bool)]
 
         if selected_df.empty:
             st.warning("登録する食材にチェックを入れてください。")
         else:
+            new_items = []
+
             for _, row in selected_df.iterrows():
-                st.session_state.inventory.append({
-                    "食材名": row["食材名"],
-                    "数量": row["数量"],
-                    "単位": row["単位"],
-                    "カテゴリ": row["カテゴリ"],
-                    "確認状態": row["確認状態"]
+                new_items.append({
+                    "食材名": str(row["食材名"]),
+                    "数量": str(row["数量"]),
+                    "単位": str(row["単位"]),
+                    "カテゴリ": str(row["カテゴリ"]),
+                    "確認状態": str(row["確認状態"])
                 })
 
-            st.success("在庫に登録しました。")
+            st.session_state.inventory.extend(new_items)
+            st.success(f"{len(new_items)}件を在庫に登録しました。")
+            st.rerun()
 
 st.divider()
 
@@ -268,4 +273,4 @@ if len(st.session_state.inventory) == 0:
     st.info("まだ在庫は登録されていません。")
 else:
     inventory_df = pd.DataFrame(st.session_state.inventory)
-    st.table(inventory_df)
+    st.dataframe(inventory_df, use_container_width=True)
