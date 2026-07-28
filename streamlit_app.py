@@ -18,13 +18,20 @@ if "ai_answer" not in st.session_state:
 if "recipe_answer" not in st.session_state:
     st.session_state.recipe_answer = ""
 
-receipt_text = st.text_area(
-    "レシート内容",
-    placeholder="レシートの商品名を1行ずつ入力してください\n例：\nこくうまキムチ\nキャベツ\nあいちっこプレミアム\n洗剤"
-)
+if "family_profile" not in st.session_state:
+    st.session_state.family_profile = ""
+
+if "avoid_foods" not in st.session_state:
+    st.session_state.avoid_foods = ""
+
+if "health_goal" not in st.session_state:
+    st.session_state.health_goal = ""
+
+if "cooking_time" not in st.session_state:
+    st.session_state.cooking_time = ""
 
 
-def run_dify_chat(api_key, query, inputs=None):
+def call_dify(api_key, query, inputs=None):
     url = st.secrets["DIFY_API_URL"]
 
     headers = {
@@ -131,28 +138,15 @@ def parse_answer(answer):
             food_name = receipt_name
 
         register_flag = True
-        non_food_words = [
-            
-            "洗剤",
-            "シャンプー",
-            "ラップ",
-            "電池",
-            "文具",
-            "ティッシュ",
-            "トイレットペーパー",
-            "スポンジ"
-        ]
 
         if inventory_target == "対象外":
             register_flag = False
+
         if "食品ではない" in food_name:
-            register_flag = False
-        if receipt_name in non_food_words:
-            register_flag = False
-        if food_name in non_food_words:
             register_flag = False
 
         confirm_status = "登録可能"
+
         if user_check == "必要" or confidence == "低":
             confirm_status = "要確認"
 
@@ -170,18 +164,20 @@ def parse_answer(answer):
 
 
 def inventory_to_text(inventory_list):
-    if not inventory_list:
-        return ""
-
     lines = []
+
     for item in inventory_list:
         lines.append(
             f"{item.get('食材名', '')} {item.get('数量', '')}{item.get('単位', '')} カテゴリ:{item.get('カテゴリ', '')}"
         )
+
     return "\n".join(lines)
 
 
-st.divider()
+receipt_text = st.text_area(
+    "レシート内容",
+    placeholder="レシートの商品名を1行ずつ入力してください\n例：\nこくうまキムチ\nキャベツ\nあいちっこプレミアム\n洗剤"
+)
 
 if st.button("レシートを解析する"):
     if not receipt_text.strip():
@@ -189,7 +185,7 @@ if st.button("レシートを解析する"):
     else:
         try:
             with st.spinner("Difyでレシートを解析しています..."):
-                result = run_dify_chat(
+                result = call_dify(
                     st.secrets["DIFY_API_KEY"],
                     receipt_text,
                     {
@@ -202,13 +198,9 @@ if st.button("レシートを解析する"):
             st.session_state.ai_answer = answer
             st.session_state.candidates = parse_answer(answer)
 
-        except requests.exceptions.Timeout:
-            st.error("Difyの応答が60秒以内に返ってきませんでした。")
-
         except Exception as error:
-            st.error("エラーが発生しました。")
+            st.error("レシート解析でエラーが発生しました。")
             st.write(str(error))
-
 
 if st.session_state.ai_answer:
     st.subheader("AI解析結果")
@@ -290,32 +282,38 @@ st.subheader("現在の在庫一覧")
 if len(st.session_state.inventory) == 0:
     st.info("まだ在庫は登録されていません。")
 else:
-    inventory_df = pd.DataFrame(st.session_state.inventory)
-    st.dataframe(inventory_df, use_container_width=True)
+    st.dataframe(pd.DataFrame(st.session_state.inventory), use_container_width=True)
 
 st.divider()
 
 st.subheader("献立提案")
 
-family_profile = st.text_area(
+st.session_state.family_profile = st.text_area(
     "家族条件",
+    value=st.session_state.family_profile,
     placeholder="例：大人2人、子ども1人。子どもは辛いものが苦手。"
 )
 
-avoid_foods = st.text_input(
+st.session_state.avoid_foods = st.text_input(
     "避ける食材",
+    value=st.session_state.avoid_foods,
     placeholder="例：えび、そば"
 )
 
-health_goal = st.text_input(
+st.session_state.health_goal = st.text_input(
     "健康目標",
+    value=st.session_state.health_goal,
     placeholder="例：野菜多め、塩分控えめ"
 )
 
-cooking_time = st.text_input(
+st.session_state.cooking_time = st.text_input(
     "調理時間",
+    value=st.session_state.cooking_time,
     placeholder="例：30分以内"
 )
+
+if st.button("家族条件を保存する"):
+    st.success("家族条件を保存しました。このセッション中は保持されます。")
 
 if st.button("献立を提案する"):
     inventory_text = inventory_to_text(st.session_state.inventory)
@@ -330,16 +328,16 @@ if st.button("献立を提案する"):
 {inventory_text}
 
 家族条件：
-{family_profile}
+{st.session_state.family_profile}
 
 避ける食材：
-{avoid_foods}
+{st.session_state.avoid_foods}
 
 健康目標：
-{health_goal}
+{st.session_state.health_goal}
 
 調理時間：
-{cooking_time}
+{st.session_state.cooking_time}
 
 出力内容：
 1. 献立名
@@ -354,28 +352,25 @@ if st.button("献立を提案する"):
         recipe_inputs = {
             "inventory": inventory_text,
             "在庫一覧": inventory_text,
-            "family_profile": family_profile,
-            "家族条件": family_profile,
-            "avoid_foods": avoid_foods,
-            "避ける食材": avoid_foods,
-            "health_goal": health_goal,
-            "健康目標": health_goal,
-            "cooking_time": cooking_time,
-            "調理時間": cooking_time
+            "family_profile": st.session_state.family_profile,
+            "家族条件": st.session_state.family_profile,
+            "avoid_foods": st.session_state.avoid_foods,
+            "避ける食材": st.session_state.avoid_foods,
+            "health_goal": st.session_state.health_goal,
+            "健康目標": st.session_state.health_goal,
+            "cooking_time": st.session_state.cooking_time,
+            "調理時間": st.session_state.cooking_time
         }
 
         try:
             with st.spinner("Difyで献立を提案しています..."):
-                result = run_dify_chat(
+                result = call_dify(
                     st.secrets["RECIPE_API_KEY"],
                     recipe_query,
                     recipe_inputs
                 )
 
             st.session_state.recipe_answer = get_answer(result)
-
-        except requests.exceptions.Timeout:
-            st.error("Difyの応答が60秒以内に返ってきませんでした。")
 
         except Exception as error:
             st.error("献立提案でエラーが発生しました。")
